@@ -958,7 +958,7 @@ namespace PointerConstructorResolution
     {    
     public:
         explicit SomeClass(AnotherClass *anotherClass) : mAnotherClass(anotherClass) {}
-        explicit SomeClass(std::shared<Dependency> dependency) : mDependency(dependency), dependencyInjected(true) {}
+        explicit SomeClass(std::shared_ptr<Dependency> dependency) : mDependency(dependency), dependencyInjected(true) {}
         
         bool dependencyInjected = false;
         std::shared_ptr<Dependency> mDependency;
