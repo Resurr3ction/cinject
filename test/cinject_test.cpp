@@ -971,7 +971,7 @@ namespace PointerConstructorResolution
         c.bind<Dependency>().toSelf();
         c.bind<SomeClass>().toSelf();
         std::shared_ptr<SomeClass> someClass = c.get<SomeClass>();
-        ASSERT_TUE(someClass);
+        ASSERT_TRUE(someClass);
         ASSERT_EQ(true, someClass->dependencyInjected);
         ASSERT_TRUE(mDependency);
         ASSERT_FALSE(mAnotherClass);
