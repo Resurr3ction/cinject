@@ -949,3 +949,31 @@ namespace AutomaticConstructor
         ASSERT_NE(nullptr, zoo);
     }
 }
+
+namespace PointerConstructorResolution
+{
+    class AnotherClass {};
+    class Dependency {};
+    class SomeClass 
+    {    
+    public:
+        explicit SomeClass(AnotherClass *anotherClass) : mAnotherClass(anotherClass) {}
+        explicit SomeClass(std::shared<Dependency> dependency) : mDependency(dependency), dependencyInjected(true) {}
+        
+        bool dependencyInjected = false;
+        std::shared_ptr<Dependency> mDependency;
+        AnotherClass *mAnotherClass = nullptr;        
+    };
+    
+    TEST_F(CInjectTest, TestPointerConstructorResolution)
+    {
+        Container c;
+        c.bind<Dependency>().toSelf();
+        c.bind<SomeClass>().toSelf();
+        std::shared_ptr<SomeClass> someClass = c.get<SomeClass>();
+        ASSERT_TUE(someClass);
+        ASSERT_EQ(true, someClass->dependencyInjected);
+        ASSERT_TRUE(mDependency);
+        ASSERT_FALSE(mAnotherClass);
+    }
+}
