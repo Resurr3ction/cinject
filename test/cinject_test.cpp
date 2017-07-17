@@ -973,7 +973,7 @@ namespace PointerConstructorResolution
         std::shared_ptr<SomeClass> someClass = c.get<SomeClass>();
         ASSERT_TRUE(someClass);
         ASSERT_EQ(true, someClass->dependencyInjected);
-        ASSERT_TRUE(mDependency);
-        ASSERT_FALSE(mAnotherClass);
+        ASSERT_TRUE(someClass->mDependency);
+        ASSERT_FALSE(someClass->mAnotherClass);
     }
 }
