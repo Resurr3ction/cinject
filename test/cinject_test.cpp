@@ -965,7 +965,7 @@ namespace PointerConstructorResolution
         AnotherClass *mAnotherClass = nullptr;        
     };
     
-    TEST_F(CInjectTest, TestPointerConstructorResolution)
+    TEST(CInjectTest, TestPointerConstructorResolution)
     {
         Container c;
         c.bind<Dependency>().toSelf();
