@@ -6,6 +6,10 @@
 #include <memory>
 #include <unordered_map>
 
+
+#define CINJECT_VERSION 1000000 // 1.000.000
+
+
 namespace cinject
 {
 
@@ -19,11 +23,11 @@ struct ConstructorType
     typedef T Type;
 };
 
-#define INJECT(constructorFunction) \
+#define CINJECT(constructorFunction) \
 typedef cinject::ConstructorType<constructorFunction> ConstructorTypedef; \
 constructorFunction
 
-#define COMPONENT_NAME(component_name) \
+#define CINJECT_NAME(component_name) \
 static const char* name() { return component_name; }
 
 /////////////////////////////////////////////////////////
@@ -94,7 +98,7 @@ struct cinject_unspecified_component {};
 
 struct component_type
 {
-    component_type(const std::type_info& t, const std::string& customName = "") : typeInfo(t), customName(customName) {}
+    explicit component_type(const std::type_info& t, const std::string& customName = "") : typeInfo(t), customName(customName) {}
 
     const std::type_info& typeInfo;
     const std::string customName;
@@ -151,10 +155,10 @@ struct type_name<T, typename std::enable_if<has_name<T>::value>::type>
 /////////////////////////////////////////////////////////
 // EXCEPTIONS
 /////////////////////////////////////////////////////////
-class CircularDependencyFound : public std::logic_error
+class CircularDependencyFoundException : public std::logic_error
 {
 public:
-    explicit CircularDependencyFound(const component_type& type)
+    explicit CircularDependencyFoundException(const component_type& type)
         : std::logic_error(std::string("Found circular dependency on object '") + type.name() + "'")
     {
     }
@@ -227,6 +231,11 @@ public:
         return componentStack_[componentStack_.size() - 2];
     }
 
+    InjectionContext(const InjectionContext&) = delete;
+    InjectionContext(const InjectionContext&&) = delete;
+    void operator=(const InjectionContext&) = delete;
+    void operator=(const InjectionContext&&) = delete;
+
 private:
     Container& container_;
     std::vector<component_type> componentStack_;
@@ -261,7 +270,7 @@ public:
         {
             if (stack[i] == stack.back())
             {
-                throw CircularDependencyFound(stack.back());
+                throw CircularDependencyFoundException(stack.back());
             }
         }
     }
@@ -279,7 +288,7 @@ private:
 class IInstanceRetriever
 {
 public:
-    virtual ~IInstanceRetriever() {}
+    virtual ~IInstanceRetriever() = default;
 
 };
 
@@ -294,10 +303,10 @@ template<typename TImplementation, typename TInterface, typename TInstanceStorag
 class CastInstanceRetriever : public InstanceRetriever<TInterface>
 {
 public:
-    CastInstanceRetriever(std::shared_ptr<TInstanceStorage> storage) :
+    explicit CastInstanceRetriever(std::shared_ptr<TInstanceStorage> storage) :
         storage_(storage) {}
 
-    virtual std::shared_ptr<TInterface> forwardInstance(InjectionContext* context) override
+    std::shared_ptr<TInterface> forwardInstance(InjectionContext* context) override
     {
         return std::dynamic_pointer_cast<TInterface>(storage_->getInstance(context));
     }
@@ -314,18 +323,63 @@ private:
 template<typename... TArgs>
 class ComponentBuilder;
 
+
+/// Container is used to configure bindings between interfaces and implementations.
+///
+/// Start with this class to configure your application.
+/// ### Sample usage
+/// ```
+/// class IFoo
+/// {};
+///
+/// class Foo : public IFoo
+/// {
+/// };
+///
+/// ...
+///
+/// Container container;
+/// container.bind<IFoo>().to<Foo>();
+///
+/// std::shared_ptr<IFoo> foo = container.get<IFoo>()
+/// ```
 class Container
 {
     template<typename ... TComponents>
     friend class ComponentBuilderBase;
 public:
     Container() = default;
-    Container(const Container* parentContainer) : parentContainer_(parentContainer) {}
+    explicit Container(const Container* parentContainer) : parentContainer_(parentContainer) {}
 
+
+    /// Initiates binding configuration for the TArgs component type.
+    ///
+    /// Start with this class to configure your application.
+    /// @par Sample usage
+    /// ```
+    /// Container c;
+    /// c.bind<IAnimal>()
+    /// c.bind<IAnimal, IFlower>()
+    /// c.bind<IReceiver, ISender, IManager>()
+    /// ```
+    ///
+    /// @tparam TArgs One or many components used for registration.
+    /// @return ComponentBuilder instance used to specific binding configuration
     template<typename... TArgs>
     ComponentBuilder<TArgs...> bind();
 
-    // container.get<std::vector<IFoo>>()
+    /// Attempts to resolve all available instances registered to the requested type.
+    ///
+    /// This function is used when the requested type is vector with simple type as the containing type
+    ///
+    /// @par Sample usage
+    /// ```
+    /// container.get<std::vector<IFoo>>()
+    /// ```
+    ///
+    /// @param context [in] Injection context.
+    /// @tparam TVectorWithInterface Requested type. Usually an interface.
+    /// @returns vector of instances registered to the requested type identified by the TVectorWithInterface template argument.
     template<typename TVectorWithInterface>
     typename std::enable_if<is_vector<TVectorWithInterface>::value &&
         !is_shared_ptr<typename trim_vector<TVectorWithInterface>::type>::value &&
@@ -333,15 +387,36 @@ public:
         std::vector<std::shared_ptr<typename trim_vector<TVectorWithInterface>::type>>>::type
     get(InjectionContext* context = nullptr);
 
-    // container.get<std::vector<std::shared_ptr<IFoo>>>()
+    /// Attempts to resolve all available instances registered to the requested type.
+    ///
+    /// This function is used when the requested type is vector with shared_ptr as the containing type
+    /// @par Sample usage
+    /// ```
+    /// container.get<std::vector<std::shared_ptr<IFoo>>>()
+    /// ```
+    ///
+    /// @param context [in] Injection context.
+    /// @tparam TVectorWithInterface Requested type. Usually an interface.
+    /// @returns vector of instances registered to the requested type identified by the TVectorWithInterface template argument.
     template<typename TVectorWithInterface>
     typename std::enable_if<is_vector<TVectorWithInterface>::value &&
         is_shared_ptr<typename trim_vector<TVectorWithInterface>::type>::value &&
         !std::is_reference<TVectorWithInterface>::value,
         std::vector<typename trim_vector<TVectorWithInterface>::type>>::type
-        get(InjectionContext* context = nullptr);
+    get(InjectionContext* context = nullptr);
 
-    // container.get<std::shared_ptr<IFoo>>()
+    /// Attempts to resolve an instance registered to the requested type.
+    ///
+    /// This function is used when the requested type shared_ptr
+    ///
+    /// @par Sample usage
+    /// ```
+    /// container.get<std::shared_ptr<IFoo>>()
+    /// ```
+    ///
+    /// @param context [in] Injection context.
+    /// @tparam TInterfaceWithSharedPtr Requested type. Usually an interface.
+    /// @returns Instance registered to the requested type identified by the TInterfaceWithSharedPtr template argument.
     template<typename TInterfaceWithSharedPtr>
     typename std::enable_if<!is_vector<TInterfaceWithSharedPtr>::value &&
         is_shared_ptr<TInterfaceWithSharedPtr>::value &&
@@ -349,7 +424,18 @@ public:
     TInterfaceWithSharedPtr>::type
     get(InjectionContext* context = nullptr);
 
-    // container.get<IFoo>()
+    /// Attempts to resolve an instance registered to the requested type.
+    ///
+    /// This function is used when the requested type simple type
+    ///
+    /// @par Sample usage
+    /// ```
+    /// container.get<IFoo>()
+    /// ```
+    ///
+    /// @param context [in] Injection context.
+    /// @tparam TInterface Requested type. Usually an interface.
+    /// @returns Instance registered to the requested type identified by the TInterface template argument.
     template<typename TInterface>
     typename std::enable_if<!is_vector<TInterface>::value &&
         !is_shared_ptr<TInterface>::value &&
@@ -357,7 +443,20 @@ public:
     std::shared_ptr<TInterface>>::type
     get(InjectionContext* context = nullptr);
 
-    // container.get<const IAny&>()
+    /// Attempts to resolve an instance registered to the requested type.
+    ///
+    /// This function is used when the requested type is reference typ
+    ///
+    /// @par Sample usage
+    /// ```
+    /// container.get<const std::vector<IAny>&>()
+    /// container.get<const std::vector<std::shared_ptr<IAny>>&>()
+    /// ```
+    ///
+    /// @note Only vector is supported
+    /// @param context [in] Injection context.
+    /// @tparam TInterface Requested type. Usually an interface.
+    /// @returns Instance registered to the requested type identified by the TInterface template argument.
     template<typename TInterface>
     typename std::enable_if<std::is_reference<TInterface>::value && std::is_const<typename std::remove_reference<TInterface>::type>::value,
     typename std::remove_reference<TInterface>::type>::type
@@ -379,7 +478,7 @@ private:
 
 struct ctor_arg_resolver
 {
-    ctor_arg_resolver(InjectionContext* context)
+    explicit ctor_arg_resolver(InjectionContext* context)
         : context_(context)
     {}
 
@@ -396,7 +495,7 @@ struct ctor_arg_resolver
 template<typename TInstance>
 struct ctor_arg_resolver_1st
 {
-    ctor_arg_resolver_1st(InjectionContext* context)
+    explicit ctor_arg_resolver_1st(InjectionContext* context)
         : context_(context)
     {}
 
@@ -474,7 +573,7 @@ private:
     typename std::enable_if<!std::is_constructible<TInstance, TArg>::value, std::shared_ptr<TInstance>>::type
         try_instantiate(TArg arg)
     {
-        static_assert(always_false<TInstance>::value, "Could not find any suitable constructor for injection. Try explicitly mark the constructor using INJECT macro");
+        static_assert(always_false<TInstance>::value, "Could not find any suitable constructor for injection. Try explicitly mark the constructor using CINJECT macro");
     }
 };
 
@@ -494,7 +593,7 @@ struct ConstructorInvoker<TInstance(TConstructorArgs...)>
 };
 
 
-// Factory for injection using the INJECT macro
+// Factory for injection using the CINJECT macro
 template<typename TInstance>
 class ConstructorFactory<TInstance, typename std::enable_if<has_constructor_injection<TInstance>::value>::type>
 {
@@ -559,31 +658,34 @@ template<typename TImplementation, typename TFactory>
 class InstanceStorage
 {
 public:
-    InstanceStorage(TFactory factory) :
-        factory_(factory),
-        mIsSingleton(false) {}
+    explicit InstanceStorage(TFactory factory) :
+        factory_(factory)
+    {}
 
     virtual std::shared_ptr<TImplementation> getInstance(InjectionContext* context)
     {
-        if (!mIsSingleton)
+        if (!isSingleton_)
         {
             return createInstance(context);
         }
 
-        if (mInstance == nullptr)
+        if (instance_ == nullptr)
         {
-            mInstance = createInstance(context);
+            instance_ = createInstance(context);
         }
 
-        return mInstance;
+        return instance_;
     }
 
-    void setSingleton(bool value) { mIsSingleton = value; }
+    void setSingleton(bool value) { isSingleton_ = value; }
+
+    void setName(const std::string& name) { name_ = name; }
+    void setName(std::string&& name) { name_ = name; }
 
 private:
     std::shared_ptr<TImplementation> createInstance(InjectionContext* context)
     {
-        ContextGuard guard(context, make_component_type<TImplementation>(type_name<TImplementation>::value()));
+        ContextGuard guard(context, make_component_type<TImplementation>(!name_.empty() ? name_ : type_name<TImplementation>::value()));
 
         guard.ensureNoCycle();
 
@@ -591,8 +693,9 @@ private:
     }
 
     TFactory factory_;
-    bool mIsSingleton;
-    std::shared_ptr<TImplementation> mInstance;
+    bool isSingleton_ = false;
+    std::shared_ptr<TImplementation> instance_;
+    std::string name_;
 };
 
 
@@ -600,31 +703,63 @@ private:
 /////////////////////////////////////////////////////////
 // STORAGE CONFIGURATION
 /////////////////////////////////////////////////////////
+
+
+/// Configures instance storage.
+///
+/// Instance can be either transient or singleton. If it's singleton, then the same instance is provided whenever it's requested. Otherwise
+/// a new instance is always created.
+/// @tparam TInstanceStorage Instance storage type.
 template<typename TInstanceStorage>
 class StorageConfiguration
 {
 public:
-    StorageConfiguration(std::shared_ptr<TInstanceStorage> storage) :
+    explicit StorageConfiguration(std::shared_ptr<TInstanceStorage> storage) :
         storage_(storage)
-    {
+    {}
 
-    }
 
-    void inSingletonScope()
+    /// Configures the instance to be handled as singleton
+    ///
+    ///
+    StorageConfiguration& inSingletonScope()
     {
         storage_->setSingleton(true);
+
+        return *this;
+    }
+
+    /// Configures the instance name
+    ///
+    ///
+    StorageConfiguration& alias(const std::string& name)
+    {
+        storage_->setName(name);
+
+        return *this;
+    }
+
+    /// Configures the instance name
+    ///
+    ///
+    StorageConfiguration& alias(std::string&& name)
+    {
+        storage_->setName(name);
+
+        return *this;
     }
 
 private:
     std::shared_ptr<TInstanceStorage> storage_;
 };
 
-// Specialized Storage Configuration for Constant Factory
+/// Specialized Storage Configuration for Constant Factory
+/// @tparam TInstance Instance type to be configured.
 template<typename TInstance>
 class StorageConfiguration<InstanceStorage<TInstance, ConstantFactory<TInstance>>>
 {
 public:
-    StorageConfiguration(std::shared_ptr<InstanceStorage<TInstance, ConstantFactory<TInstance>>> storage) :
+    explicit StorageConfiguration(std::shared_ptr<InstanceStorage<TInstance, ConstantFactory<TInstance>>> storage) :
         storage_(storage)
     {
 
@@ -640,14 +775,31 @@ private:
 // COMPONENT BUILDER
 /////////////////////////////////////////////////////////
 
+/// Builds binding between interfaces and implementations.
+///
+/// @par Sample usage
+/// ```
+/// Container c;
+///
+/// c.bind<IFirst>().to<Implementation>();
+/// c.bind<IFirst>().toFunction<Cheetah>([](InjectionContext*) { return std::make_shared<Cheetah>(); });
+/// c.bind<IFirst>().toContainer(cheetah);
+/// c.bind<Cheetah>().toSelf();
+/// ```
+/// @note The toSelf is available only when the list of interfaces constains exactly one item
+/// @tparam TComponents List of interfaces used for binding
 template<typename ... TComponents>
 class ComponentBuilderBase
 {
 public:
-    ComponentBuilderBase(Container* container) :
+    explicit ComponentBuilderBase(Container* container) :
         container_(container)
     {}
 
+    /// Binds all interfaces to provided implementation identified by the TImplementation type.
+    ///
+    /// @tparam TImplementation Implementation type.
+    /// @return StoreConfiguration instance used to configure instance storage.
     template<typename TImplementation>
     StorageConfiguration<InstanceStorage<TImplementation, ConstructorFactory<TImplementation>>>
         to()
@@ -662,6 +814,11 @@ public:
         return StorageConfiguration<InstanceStorageType>(instanceStorage);
     }
 
+    /// Binds all interfaces to provided function used to create a new instance.
+    ///
+    /// @tparam TImplementation Implementation type. The provided function must return an instance that can be converted to TImplementation.
+    /// @param factoryMethod Function creating a new instance.
+    /// @return StoreConfiguration instance used to configure instance storage.
     template<typename TImplementation>
     StorageConfiguration<InstanceStorage<TImplementation, FunctionFactory<TImplementation>>>
         toFunction(typename FunctionFactory<TImplementation>::FactoryMethodType factoryMethod)
@@ -676,6 +833,11 @@ public:
         return StorageConfiguration<InstanceStorageType>(instanceStorage);
     }
 
+    /// Binds all interfaces to already existing instance.
+    ///
+    /// @tparam TImplementation Implementation type. The provided instance must be convertible to TImplementation.
+    /// @param instance Instance
+    /// @return StoreConfiguration instance used to configure instance storage.
     template<typename TImplementation>
     StorageConfiguration<InstanceStorage<TImplementation, ConstantFactory<TImplementation>>>
         toConstant(std::shared_ptr<TImplementation> instance)
@@ -689,7 +851,6 @@ public:
 
         return StorageConfiguration<InstanceStorageType>(instanceStorage);
     }
-
 
 private:
     template<typename TImplementation, typename TInstanceStorage, typename TComponent1, typename TComponentOther, typename ... TRest>
@@ -723,28 +884,43 @@ private:
 };
 
 
-
+/// Basic builder used for two and more interfaces.
+///
+/// @see ComponentBuilderBase
 template<typename ... TComponents>
 class ComponentBuilder : public ComponentBuilderBase<TComponents...>
 {
 public:
-    ComponentBuilder(Container* container) :
+    explicit ComponentBuilder(Container* container) :
         ComponentBuilderBase<TComponents...>(container)
     {}
 };
 
-// Specialization for single component registration that allows the toSelf
-template<typename TImplementation>
-class ComponentBuilder<TImplementation> : public ComponentBuilderBase<TImplementation>
+
+/// Specialization for single component registration that allows the toSelf.
+///
+/// This class is used only when the number of interfaces is exactly one.
+/// @tparam TComponent Interface used for registration.
+template<typename TComponent>
+class ComponentBuilder<TComponent> : public ComponentBuilderBase<TComponent>
 {
 public:
-    ComponentBuilder(Container* container) :
-        ComponentBuilderBase<TImplementation>(container)
+    explicit ComponentBuilder(Container* container) :
+        ComponentBuilderBase<TComponent>(container)
     {}
 
-    StorageConfiguration<InstanceStorage<TImplementation, ConstructorFactory<TImplementation>>> toSelf()
+    /// Registers interface to the same type.
+    ///
+    /// @par Sample usage
+    /// ```
+    /// Container c;
+    ///
+    /// c.bind<City>().toSelf()
+    /// ```
+    /// @return StoreConfiguration instance used to configure instance storage.
+    StorageConfiguration<InstanceStorage<TComponent, ConstructorFactory<TComponent>>> toSelf()
     {
-        return ComponentBuilderBase<TImplementation>::template to<TImplementation>();
+        return ComponentBuilderBase<TComponent>::template to<TComponent>();
     }
 };
 
